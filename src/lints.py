@@ -187,12 +187,18 @@ def magic_number_linter(visitor: ASTVisitor, node: clang.cindex.Cursor):
     value = None
     if node_kind.endswith('INTEGER_LITERAL'):
         sub_code = code[beg_pos.offset: end_pos.offset]
-        value = int(sub_code)
+        try:
+            value = int(sub_code)
+        except ValueError:
+            return
         if __is_ignore_magic__(value):
             return
     elif node_kind.endswith('FLOATING_LITERAL'):
         sub_code = code[beg_pos.offset: end_pos.offset]
-        value = float(sub_code)
+        try:
+            value = float(sub_code)
+        except ValueError:
+            return
         if __is_ignore_magic__(value):
             return
     if value is None:
@@ -211,7 +217,7 @@ if __name__ == "__main__":
     ccode.set_clang_libpath('/opt/homebrew/opt/llvm/lib')
     pass_numb, fail_numb = 0, 0
     file_reader = ccode.CFileReader()
-    root_dir = '/Users/linhuan/Development/MyRepos/cpplinter/examples'
+    root_dir = '/Users/linhuan/Development/CcRepos/cppast'
     out_dir = '/Users/linhuan/Development/MyRepos/cpplinter/output'
 
     # check the C++ source files
