@@ -213,13 +213,24 @@ def __ast2json__(reader: CFileReader, src_file: str, node: clang.cindex.Cursor):
 
     parent = {
         'kind': str(node.kind),
-        'file': file_name,
         'line': beg_pos.line,
         'column': beg_pos.column,
         'code': sub_code,
         'size': 0,
         'children': list()
     }
+
+    node_def = node.get_definition()
+    if node_def is not None:
+        node_def: clang.cindex.Cursor
+        def_pos = node_def.location
+        def_pos: clang.cindex.SourceLocation
+        parent['def'] = {
+            'kind': '{}'.format(node_def.kind),
+            'file': '{}'.format(def_pos.file.name),
+            'line': def_pos.line,
+            'column': def_pos.column,
+        }
 
     child_number = 0
     for child in node.get_children():
@@ -252,7 +263,7 @@ if __name__ == '__main__':
     set_clang_libpath('/opt/homebrew/opt/llvm/lib')
     pass_numb, fail_numb = 0, 0
     file_reader = CFileReader()
-    root_dir = '/Users/linhuan/Development/CcRepos/cpptest'
+    root_dir = '/Users/linhuan/Development/MyRepos/cpplinter/examples'
     out_dir = '/Users/linhuan/Development/MyRepos/cpplinter/output'
 
     # traverse source file and parse
