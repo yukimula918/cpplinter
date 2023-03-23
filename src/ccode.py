@@ -216,8 +216,6 @@ def __ast2json__(reader: CFileReader, src_file: str, node: clang.cindex.Cursor):
         'line': beg_pos.line,
         'column': beg_pos.column,
         'code': sub_code,
-        'size': 0,
-        'children': list()
     }
 
     node_def = node.get_definition()
@@ -225,20 +223,32 @@ def __ast2json__(reader: CFileReader, src_file: str, node: clang.cindex.Cursor):
         node_def: clang.cindex.Cursor
         def_pos = node_def.location
         def_pos: clang.cindex.SourceLocation
+        def_end = node_def.extent.end
+        def_end: clang.cindex.SourceLocation
+        def_code = ''
+        if def_pos.file.name == src_file:
+            code = reader.code_of_file(file_name)
+            def_code = code[def_pos.offset: def_end.offset]
+            def_code = def_code.replace('\n', ' ')
+            def_code = def_code.replace('\t', ' ')
         parent['def'] = {
             'kind': '{}'.format(node_def.kind),
             'file': '{}'.format(def_pos.file.name),
             'line': def_pos.line,
             'column': def_pos.column,
+            'code': def_code,
         }
 
     child_number = 0
+    child_nodes = list()
     for child in node.get_children():
         child_node = __ast2json__(reader, src_file, child)
         child_number += 1
         if child_node is not None:
-            parent['children'].append(child_node)
+            child_nodes.append(child_node)
     parent['size'] = child_number
+    if len(child_nodes) > 0:
+        parent['children'] = child_nodes
     return parent
 
 
