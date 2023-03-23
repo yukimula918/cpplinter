@@ -28,15 +28,13 @@ class ASTVisitor:
             return
 
         # to avoid AST cursors not in the source file (included from others)
-        beg_pos = parent.location
+        beg_pos = parent.extent.start
         beg_pos: clang.cindex.SourceLocation
         if (beg_pos.file is None) or (beg_pos.file.name != self.file_path):
             return
 
         # to perform the static check in the given parent node
         for func in funcs:
-            if func is None:
-                continue
             func(self, parent)
 
         # recursively traverse the child nodes
@@ -89,7 +87,9 @@ class ASTVisitor:
         return visitor.reports
 
 
-__MAX_FUNC_PARAM_NUMB__ = 8
+__MAX_FUNC_PARAM_NUMB__ = 2
+__MAX_FUNC_CODE_LENGTH__ = 4
+__IGNORE_MAGIC_NUMBERS__ = [16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
 
 
 def func_params_linter(visitor: ASTVisitor, node: clang.cindex.Cursor):
@@ -99,9 +99,110 @@ def func_params_linter(visitor: ASTVisitor, node: clang.cindex.Cursor):
     :param node:
     :return:
     """
+    parent_kind = '{}'.format(node.kind)
+    if parent_kind.endswith('CXX_METHOD') or parent_kind.endswith('FUNCTION_DECL'):
+        param_numb = 0
+        for child in node.get_children():
+            if child is None:
+                continue
+            child: clang.cindex.Cursor
+            child_kind = '{}'.format(child.kind)
+            if child_kind.endswith('PARM_DECL'):
+                param_numb += 1
+        if param_numb > __MAX_FUNC_PARAM_NUMB__:
+            visitor.do_report('CPP-000001', 'too_many_params_in_func', node,
+                              'there are {} parameters in function'.format(param_numb))
+    return
+
+
+def func_length_linter(visitor: ASTVisitor, node: clang.cindex.Cursor):
+    """This method implements the static check of function size
+
+    :param visitor:
+    :param node:
+    :return:
+    """
+    func_kind = '{}'.format(node.kind)
+    if func_kind.endswith('CXX_METHOD') or func_kind.endswith('FUNCTION_DECL'):
+        for child in node.get_children():
+            if child is None:
+                continue
+            child: clang.cindex.Cursor
+            child_kind = '{}'.format(child.kind)
+            if child_kind.endswith('COMPOUND_STMT'):
+                beg_pos = child.extent.start
+                end_pos = child.extent.end
+                beg_pos: clang.cindex.SourceLocation
+                end_pos: clang.cindex.SourceLocation
+                length = end_pos.line - beg_pos.line
+                if length > __MAX_FUNC_CODE_LENGTH__:
+                    visitor.do_report('CPP-000002', 'too_long_function_body', node,
+                                      'the body is too long ({} lines)'.format(length))
+    return
+
+
+def __is_ignore_magic__(value):
+    if isinstance(value, int):
+        if (value < 10) and (value > -10):
+            return True
+        if value in __IGNORE_MAGIC_NUMBERS__:
+            return True
+        if -value in __IGNORE_MAGIC_NUMBERS__:
+            return True
+        if value % 10 == 0:
+            return True
+        if value % 1024 == 0:
+            return True
+        return False
+    if isinstance(value, float):
+        if (value < 10) and (value > -10):
+            return True
+        if value in __IGNORE_MAGIC_NUMBERS__:
+            return True
+        if -value in __IGNORE_MAGIC_NUMBERS__:
+            return True
+        return False
+    return True
+
+
+def magic_number_linter(visitor: ASTVisitor, node: clang.cindex.Cursor):
+    """This method checks the invalid use of magic numbers (integer or float)
+
+    :param visitor:
+    :param node:
+    :return:
+    """
     if (visitor is None) or (node is None):
         return
+    elif len(visitor.ast_stack) == 0:
+        return
 
+    beg_pos = node.extent.start
+    end_pos = node.extent.end
+    beg_pos: clang.cindex.SourceLocation
+    end_pos: clang.cindex.SourceLocation
+    code = visitor.reader.code_of_file(beg_pos.file.name)
+
+    node_kind = '{}'.format(node.kind)
+    value = None
+    if node_kind.endswith('INTEGER_LITERAL'):
+        sub_code = code[beg_pos.offset: end_pos.offset]
+        value = int(sub_code)
+        if __is_ignore_magic__(value):
+            return
+    elif node_kind.endswith('FLOATING_LITERAL'):
+        sub_code = code[beg_pos.offset: end_pos.offset]
+        value = float(sub_code)
+        if __is_ignore_magic__(value):
+            return
+    if value is None:
+        return
+
+    parent = visitor.ast_stack[-1]
+    parent: clang.cindex.Cursor
+    parent_kind = '{}'.format(parent.kind)
+    if not parent_kind.endswith('VAR_DECL'):  # TODO: add more context-based ignorance
+        visitor.do_report('CPP-000003', 'magic_number_usage', node, 'magic number {} should not be used'.format(value))
     return
 
 
@@ -116,7 +217,9 @@ if __name__ == "__main__":
     # check the C++ source files
     for c_file in file_reader.source_files_in(root_dir):
         o_file = os.path.join(out_dir, os.path.basename(c_file) + '.err.json')
-        err_reports = ASTVisitor.do_visit(file_reader, c_file, [func_params_linter])
+        err_reports = ASTVisitor.do_visit(file_reader, c_file, [func_params_linter,
+                                                                func_length_linter,
+                                                                magic_number_linter])
         with open(o_file, 'w') as writer:
             writer.write(json.dumps(err_reports))
         print('\tFind {} errors in: {}'.format(len(err_reports), c_file))
