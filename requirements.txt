@@ -1,1 +1,2 @@
 chardet>=1.0.0
+libclang>=1.0.0
