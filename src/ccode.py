@@ -4,6 +4,7 @@ author: Lin Huan
 Date:   2023/03/23
 """
 import collections
+import ctypes
 import json
 import os
 from typing import TextIO
@@ -170,6 +171,76 @@ class CFileReader:
             return self.__parser__.parse(file_path)
         raise FileNotFoundError('{}'.format(file_path))
 
+    def __dump_ast_json__(self, file_path: str,
+                          tran_unit: clang.cindex.TranslationUnit,
+                          parent: clang.cindex.Cursor):
+        """This method dumps the AST node of source file to JSON-format.
+
+        :param file_path: the path of C++ file to be parsed as JSON
+        :param tran_unit: the translation unit of AST of code files
+        :param parent:    the AST node to be parsed recursively
+        :return:          the dict of JSON-format object of parent
+        """
+        # print the node kind if any
+        if (parent is None) or (tran_unit is None):
+            return None
+        beg_pos = parent.extent.start
+        end_pos = parent.extent.end
+        beg_pos: clang.cindex.SourceLocation
+        end_pos: clang.cindex.SourceLocation
+        if (beg_pos.file is None) or (beg_pos.file.name != file_path):
+            return None
+
+        # print the location range info
+        parent_json = dict()
+        parent_json['kind'] = str(parent.kind)
+        if beg_pos.file is not None:
+            parent_json['range'] = {
+                'file': beg_pos.file.name,
+                'line': beg_pos.line,
+                'cols': beg_pos.column,
+            }
+            if beg_pos.file.name == file_path:
+                try:
+                    code = self.code_of_file(file_path)
+                    sub_code = code[beg_pos.offset: end_pos.offset]
+                    if len(sub_code) > 32:
+                        sub_code = sub_code[0: 32] + '...'
+                    sub_code = sub_code.replace('\n', ' ')
+                    sub_code = sub_code.replace('\t', ' ')
+                    parent_json['range']['code'] = sub_code
+                except FileNotFoundError:
+                    pass
+
+        # print type information if any
+        if parent.type is not None:
+            node_type = parent.type
+            node_type: clang.cindex.Type
+            type_str = str(node_type.kind)
+            if type_str != 'TypeKind.INVALID':
+                parent_json['type'] = str(node_type.kind)
+
+        # recursively traverse the AST
+        child_numb, children = 0, list()
+        for child in parent.get_children():
+            child_json = self.__dump_ast_json__(file_path, tran_unit, child)
+            if child_json is not None:
+                children.append(child_json)
+        if len(children) > 0:
+            parent_json['children'] = children
+        elif child_numb > 0:
+            parent_json['children'] = child_numb
+        return parent_json
+
+    def dump_ast_to_json(self, file_path: str):
+        """This method dumps the AST of source file into JSON format.
+
+        :param file_path: the path of C++ source file to be parsed
+        :return:          the dict of JSON-format object be parsed
+        """
+        t_unit = self.parse_trans_unit(file_path)
+        return self.__dump_ast_json__(file_path, t_unit, t_unit.cursor)
+
 
 def __percent__(x: int, y: int):
     """
@@ -183,75 +254,6 @@ def __percent__(x: int, y: int):
     return int(10000 * ratio) / 100.0
 
 
-def __ast2json__(reader: CFileReader, src_file: str, node: clang.cindex.Cursor):
-    if node is None:
-        return None
-
-    node_extend = node.extent
-    node_extend: clang.cindex.SourceRange
-    beg_pos = node_extend.start
-    end_pos = node_extend.end
-    beg_pos: clang.cindex.SourceLocation
-    end_pos: clang.cindex.SourceLocation
-    file_name = ''
-    if (beg_pos.file is not None) and (beg_pos.file.name == src_file):
-        file_name = beg_pos.file.name
-    else:
-        return None
-
-    sub_code = ''
-    if os.path.exists(file_name):
-        try:
-            code = reader.code_of_file(file_name)
-            sub_code = code[beg_pos.offset: end_pos.offset]
-            sub_code = sub_code.replace('\n', ' ')
-            sub_code = sub_code.replace('\t', ' ')
-        except TypeError:
-            pass
-    if len(sub_code) > 32:
-        sub_code = sub_code[0: 32] + '...'
-
-    parent = {
-        'kind': str(node.kind),
-        'line': beg_pos.line,
-        'column': beg_pos.column,
-        'code': sub_code,
-    }
-
-    node_def = node.get_definition()
-    if node_def is not None:
-        node_def: clang.cindex.Cursor
-        def_pos = node_def.location
-        def_pos: clang.cindex.SourceLocation
-        def_end = node_def.extent.end
-        def_end: clang.cindex.SourceLocation
-        def_code = ''
-        if def_pos.file.name == src_file:
-            code = reader.code_of_file(file_name)
-            def_code = code[def_pos.offset: def_end.offset]
-            def_code = def_code.replace('\n', ' ')
-            def_code = def_code.replace('\t', ' ')
-        parent['def'] = {
-            'kind': '{}'.format(node_def.kind),
-            'file': '{}'.format(def_pos.file.name),
-            'line': def_pos.line,
-            'column': def_pos.column,
-            'code': def_code,
-        }
-
-    child_number = 0
-    child_nodes = list()
-    for child in node.get_children():
-        child_node = __ast2json__(reader, src_file, child)
-        child_number += 1
-        if child_node is not None:
-            child_nodes.append(child_node)
-    parent['size'] = child_number
-    if len(child_nodes) > 0:
-        parent['children'] = child_nodes
-    return parent
-
-
 def do_visit_ast(reader: CFileReader, src_file: str, out_file: str,
                  translation_unit: clang.cindex.TranslationUnit):
     """
@@ -262,7 +264,8 @@ def do_visit_ast(reader: CFileReader, src_file: str, out_file: str,
     :return: None
     """
     with open(out_file, 'w') as writer:
-        text = json.dumps(__ast2json__(reader, src_file, translation_unit.cursor))
+        text = json.dumps(reader.dump_ast_to_json(src_file))
+        # text = json.dumps(__ast2json__(reader, src_file, translation_unit.cursor))
         writer.write(text)
         writer.close()
     return

@@ -16,3 +16,11 @@ int add(int x, int y, float z) {
     }
     return 0;
 }
+
+int strlength(const char seq[]) {
+    int i = 0;
+    while (seq[i] != '\0') {
+        i++;
+    }
+    return i;
+}
