@@ -101,6 +101,7 @@ def func_params_linter(visitor: ASTVisitor, node: clang.cindex.Cursor):
     """
     if (visitor is None) or (node is None):
         return
+
     return
 
 
@@ -115,7 +116,7 @@ if __name__ == "__main__":
     # check the C++ source files
     for c_file in file_reader.source_files_in(root_dir):
         o_file = os.path.join(out_dir, os.path.basename(c_file) + '.err.json')
-        err_reports = ASTVisitor.do_visit(file_reader, c_file, [])
+        err_reports = ASTVisitor.do_visit(file_reader, c_file, [func_params_linter])
         with open(o_file, 'w') as writer:
             writer.write(json.dumps(err_reports))
         print('\tFind {} errors in: {}'.format(len(err_reports), c_file))
