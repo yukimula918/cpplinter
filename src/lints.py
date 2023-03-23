@@ -181,7 +181,10 @@ def magic_number_linter(visitor: ASTVisitor, node: clang.cindex.Cursor):
     end_pos = node.extent.end
     beg_pos: clang.cindex.SourceLocation
     end_pos: clang.cindex.SourceLocation
-    code = visitor.reader.code_of_file(beg_pos.file.name)
+    try:
+        code = visitor.reader.code_of_file(beg_pos.file.name)
+    except UnicodeDecodeError:
+        return
 
     node_kind = '{}'.format(node.kind)
     value = None
