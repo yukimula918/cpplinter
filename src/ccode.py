@@ -59,7 +59,7 @@ class CFileReader:
     with a cache strategy. It allows the user to read source files in the cache
     without loading it, until a file not in the cache is met.
 
-    To use this reader, simply call method `code_seg(file_path, offset, length)`
+    To use CFileReader, simply invoke `code_segment(file_path, offset, length)`.
     """
 
     def __init__(self):
@@ -135,7 +135,7 @@ class CFileReader:
         """
         return self.__load_file__(file_path)
 
-    def code_seg(self, file_path: str, offset: int, length: int):
+    def code_segment(self, file_path: str, offset: int, length: int):
         """This method reads the segment of code of given files in the range of [offset, offset+length)
 
         :param file_path: the path of source file of which code segment will be read
